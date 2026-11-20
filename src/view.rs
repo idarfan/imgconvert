@@ -3,6 +3,7 @@
 
 use crate::convert::{self, ExistPolicy, OutFormat, Rotation};
 use crate::icons::{Icons, img};
+use crate::settings::{self, CardKind};
 use crate::{App, Item, Status, help, theme};
 use eframe::egui::{self, RichText};
 use std::path::PathBuf;
@@ -56,6 +57,7 @@ impl eframe::App for App {
         egui::CentralPanel::default().frame(central).show(root, |ui| self.list_ui(ui, running));
 
         help::show(ctx, &self.icons, &mut self.show_help);
+        self.persist_settings();
     }
 }
 
@@ -120,28 +122,66 @@ impl App {
         });
     }
 
+    /// 四張設定卡片依 `card_order` 排列；按住右上角把手可拖曳調整順序
     fn settings_ui(&mut self, ui: &mut egui::Ui) {
-        let App { icons, opts, same_dir, out_dir, global_rot, items, .. } = self;
         theme::section_label(ui, "輸出設定");
-        theme::settings_card(ui, &icons.palette, "輸出格式", "PNG 逐像素無損並保留透明；JPG 檔案較小但有損", |ui| {
-            theme::segmented(ui, &mut opts.format, &[(OutFormat::Png, "PNG（無損）"), (OutFormat::Jpg, "JPG（有損壓縮）")]);
-            if opts.format == OutFormat::Jpg {
-                ui.add(egui::Slider::new(&mut opts.jpg_quality, 1..=100).text("品質"));
+        let ctx = ui.ctx().clone();
+        let dragging = egui::DragAndDrop::payload::<CardKind>(&ctx).map(|p| *p);
+        if dragging.is_some() {
+            ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+        }
+        let pointer = ctx.pointer_interact_pos();
+        let released = ctx.input(|i| i.pointer.any_released());
+        let gap = ui.spacing().item_spacing.y;
+        let mut drop_at: Option<usize> = None;
+        for (idx, kind) in self.card_order.into_iter().enumerate() {
+            let (rect, grip) = self.card_ui(ui, kind, dragging == Some(kind));
+            grip.dnd_set_drag_payload(kind);
+            // 指標落在這張卡片（含下方間距）時，依上半／下半決定插在前面或後面
+            let zone = rect.expand2(egui::vec2(0.0, gap * 0.5));
+            if let (Some(_), Some(pos)) = (dragging, pointer.filter(|p| zone.contains(*p))) {
+                let after = pos.y > rect.center().y;
+                let y = if after { rect.bottom() + gap * 0.5 } else { rect.top() - gap * 0.5 };
+                theme::drop_indicator(ui, rect.left(), rect.right(), y);
+                drop_at = Some(idx + usize::from(after));
             }
-        });
-        let desc = match (*same_dir, out_dir.is_some()) {
-            (true, _) => "轉好的檔案存在原檔旁邊".to_string(),
-            (false, true) => "存到指定資料夾，並保留子資料夾結構".to_string(),
-            (false, false) => format!("未選資料夾時，自動存到來源資料夾下的「{}」", convert::DEFAULT_SUBDIR),
+        }
+        if released && let Some(kind) = egui::DragAndDrop::take_payload::<CardKind>(&ctx) {
+            if let Some(at) = drop_at {
+                self.card_order = settings::move_card(self.card_order, *kind, at);
+            }
+        }
+    }
+
+    fn card_ui(&mut self, ui: &mut egui::Ui, kind: CardKind, dimmed: bool) -> (egui::Rect, egui::Response) {
+        let App { icons, opts, same_dir, out_dir, global_rot, items, .. } = self;
+        let grip_id = egui::Id::new(("settings_card_grip", kind as u8));
+        let card = |ui: &mut egui::Ui, icon, title, desc: &str, add: &mut dyn FnMut(&mut egui::Ui)| {
+            theme::draggable_settings_card(ui, grip_id, dimmed, icon, title, desc, |ui| add(ui))
         };
-        theme::settings_card(ui, &icons.outbox, "輸出位置", &desc, |ui| out_location_ui(ui, same_dir, out_dir));
-        theme::settings_card(ui, &icons.dividers, "同名檔案", "輸出位置已有同名檔案時的處理方式", |ui| {
-            let choices = [(ExistPolicy::Rename, "自動改名"), (ExistPolicy::Overwrite, "覆蓋"), (ExistPolicy::Skip, "略過")];
-            theme::segmented(ui, &mut opts.exist, &choices);
-        });
-        theme::settings_card(ui, &icons.rotate, "全部旋轉", "套用到所有檔案；清單每列也能個別旋轉", |ui| {
-            rotation_ui(ui, global_rot, items);
-        });
+        match kind {
+            CardKind::Format => card(ui, &icons.palette, "輸出格式", "PNG 逐像素無損並保留透明；JPG 檔案較小但有損", &mut |ui| {
+                theme::segmented(ui, &mut opts.format, &[(OutFormat::Png, "PNG（無損）"), (OutFormat::Jpg, "JPG（有損壓縮）")]);
+                if opts.format == OutFormat::Jpg {
+                    ui.add(egui::Slider::new(&mut opts.jpg_quality, 1..=100).text("品質"));
+                }
+            }),
+            CardKind::Location => {
+                let desc = match (*same_dir, out_dir.is_some()) {
+                    (true, _) => "轉好的檔案存在原檔旁邊".to_string(),
+                    (false, true) => "存到指定資料夾，並保留子資料夾結構".to_string(),
+                    (false, false) => format!("未選資料夾時，自動存到來源資料夾下的「{}」", convert::DEFAULT_SUBDIR),
+                };
+                card(ui, &icons.outbox, "輸出位置", &desc, &mut |ui| out_location_ui(ui, same_dir, out_dir))
+            }
+            CardKind::Exist => card(ui, &icons.dividers, "同名檔案", "輸出位置已有同名檔案時的處理方式", &mut |ui| {
+                let choices = [(ExistPolicy::Rename, "自動改名"), (ExistPolicy::Overwrite, "覆蓋"), (ExistPolicy::Skip, "略過")];
+                theme::segmented(ui, &mut opts.exist, &choices);
+            }),
+            CardKind::Rotate => card(ui, &icons.rotate, "全部旋轉", "套用到所有檔案；清單每列也能個別旋轉", &mut |ui| {
+                rotation_ui(ui, global_rot, items);
+            }),
+        }
     }
 
     /// 標題列第二排：左邊狀態訊息，右邊進度條（尚未轉換時進度條為空）

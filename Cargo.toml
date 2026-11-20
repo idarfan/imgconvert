@@ -1,6 +1,6 @@
 [package]
 name = "imgconvert"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
 description = "AVIF / WebP 批次轉 PNG / JPG 工具"
 license = "MIT"

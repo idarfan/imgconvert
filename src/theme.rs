@@ -138,6 +138,45 @@ pub fn settings_card(
     });
 }
 
+/// 可拖曳的設定卡片：右上角畫一個六點把手。
+/// 回傳 (整張卡片的範圍, 把手的 Response)；把手用 `dnd_set_drag_payload` 設定拖曳內容。
+pub fn draggable_settings_card(
+    ui: &mut egui::Ui,
+    grip_id: egui::Id,
+    dimmed: bool,
+    icon: &egui::TextureHandle,
+    title: &str,
+    desc: &str,
+    add_control: impl FnOnce(&mut egui::Ui),
+) -> (egui::Rect, Response) {
+    let opacity = if dimmed { 0.4 } else { 1.0 };
+    let card_rect = ui
+        .scope(|ui| {
+            ui.set_opacity(opacity);
+            settings_card(ui, icon, title, desc, add_control);
+        })
+        .response
+        .rect;
+    let grip_rect = egui::Rect::from_min_size(card_rect.right_top() + Vec2::new(-30.0, 6.0), Vec2::new(24.0, 24.0));
+    let grip = ui.interact(grip_rect, grip_id, egui::Sense::drag()).on_hover_text("按住拖曳可調整卡片順序");
+    let color = if grip.hovered() || grip.dragged() { accent(ui) } else { ui.visuals().weak_text_color() };
+    if grip.hovered() || grip.dragged() {
+        ui.painter().rect_filled(grip_rect, CornerRadius::same(RADIUS), ui.visuals().widgets.hovered.weak_bg_fill);
+    }
+    for row in 0..3 {
+        for col in 0..2 {
+            let c = grip_rect.center() + Vec2::new((col as f32 - 0.5) * 6.0, (row as f32 - 1.0) * 6.0);
+            ui.painter().circle_filled(c, 1.6, color);
+        }
+    }
+    (card_rect, grip)
+}
+
+/// 卡片之間的插入位置指示線
+pub fn drop_indicator(ui: &egui::Ui, left: f32, right: f32, y: f32) {
+    ui.painter().line_segment([egui::pos2(left + 4.0, y), egui::pos2(right - 4.0, y)], Stroke::new(3.0, accent(ui)));
+}
+
 /// 大圖示磚塊（圖示在上、文字在下）；sense 用 click() 當按鈕，用 hover() 純展示
 pub fn tile(ui: &mut egui::Ui, icon: &egui::TextureHandle, text: &str, width: f32, sense: egui::Sense) -> Response {
     let clickable = sense.senses_click();

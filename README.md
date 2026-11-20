@@ -11,6 +11,7 @@ Windows 11 桌面程式：把 AVIF / WebP 批次轉成 PNG（無損）或 JPG。
 - 自動套用檔案內 EXIF 方向資訊
 - 多核心平行轉換、進度條、可中途取消、失敗原因逐檔顯示
 - 輸出到原資料夾，或指定資料夾並保留子資料夾結構
+- 左側設定卡片可拖曳排序；卡片順序與輸出位置會記住（存在 `%APPDATA%\ImgConvert\settings.txt`）
 - 同名檔：自動改名 `name (1).png`／覆蓋／略過；先寫暫存檔再改名，中斷不留半個檔
 
 ## 限制
@@ -68,6 +69,7 @@ src/convert.rs        轉檔核心（解碼／旋轉／編碼）＋單元測試
 src/main.rs           egui 介面、背景批次執行緒
 src/theme.rs          介面配色（跟隨 Windows 淺色／深色）與共用元件
 src/help.rs           「說明」對話框（操作說明、版本號）
+src/settings.rs       記住卡片順序與輸出位置（純文字設定檔）＋單元測試
 src/view.rs           主視窗版面（標題列、設定欄、清單、預覽、動作列）
 src/icons.rs          3D 圖示載入（Microsoft Fluent Emoji 3D，MIT）
 assets/icons/         3D 圖示 PNG 與授權檔
@@ -80,6 +82,13 @@ tests/fixtures/       測試圖（avifdec_ref.png 由 libavif 官方解碼器產
 改版號：修改 `Cargo.toml` 的 `version`，重新執行 `build-windows.sh`。
 
 ## 變更記錄
+
+### 2026-11-20 — v1.0.2：設定卡片可拖曳排序、記住輸出位置
+
+- 左側「輸出格式／輸出位置／同名檔案／全部旋轉」四張卡片右上角新增六點把手，按住拖曳即可調整順序，藍線標示放下位置。
+- 輸出位置預設改為「指定資料夾」。
+- 卡片順序、輸出位置（含選好的資料夾）一有變動就存到 `%APPDATA%\ImgConvert\settings.txt`，重開程式沿用；解除安裝時一併刪除。
+- 新增 `src/settings.rs`（純文字 key=value，不加新依賴）與 5 個單元測試。
 
 ### 2026-11-19 — 未選輸出資料夾時自動存到「已轉換好」
 

@@ -102,4 +102,6 @@ Section "Uninstall"
   Delete "$SENDTO\${LNK}"
   DeleteRegKey HKCU "${UNINST_KEY}"
   DeleteRegKey HKCU "Software\${APPNAME}"
+  ; 程式記住的設定（卡片順序、輸出位置）
+  RMDir /r "$APPDATA\ImgConvert"
 SectionEnd

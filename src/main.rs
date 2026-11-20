@@ -3,6 +3,7 @@
 mod convert;
 mod help;
 mod icons;
+mod settings;
 mod theme;
 mod view;
 
@@ -62,6 +63,10 @@ struct App {
     opts: Options,
     same_dir: bool,
     out_dir: Option<PathBuf>,
+    /// 左側設定卡片的排列順序（可拖曳調整）
+    card_order: [settings::CardKind; settings::CARD_COUNT],
+    /// 上次寫入磁碟的設定；與目前狀態不同時才重新存檔
+    saved: settings::Settings,
     job: Option<Job>,
     selected: Option<usize>,
     preview: Option<Preview>,
@@ -74,13 +79,16 @@ impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         install_cjk_font(&cc.egui_ctx);
         theme::install(&cc.egui_ctx);
+        let saved = settings::Settings::load();
         let mut app = Self {
             items: Vec::new(),
             recursive: true,
             global_rot: Rotation::R0,
             opts: Options::default(),
-            same_dir: true,
-            out_dir: None,
+            same_dir: saved.same_dir,
+            out_dir: saved.out_dir.clone(),
+            card_order: saved.card_order,
+            saved,
             job: None,
             selected: None,
             preview: None,
@@ -93,6 +101,22 @@ impl App {
             app.add_path(Path::new(&arg));
         }
         app
+    }
+
+    fn current_settings(&self) -> settings::Settings {
+        settings::Settings { card_order: self.card_order, same_dir: self.same_dir, out_dir: self.out_dir.clone() }
+    }
+
+    /// 設定有變動就立刻存檔，關閉程式（甚至當掉）也不會遺失
+    fn persist_settings(&mut self) {
+        let now = self.current_settings();
+        if now == self.saved {
+            return;
+        }
+        if let Err(e) = now.save() {
+            self.message = format!("設定未能儲存：{e}");
+        }
+        self.saved = now;
     }
 
     fn running(&self) -> bool {
