@@ -31,12 +31,22 @@ if x86_64-w64-mingw32-objdump -p dist/ImgConvert.exe | grep -qiE 'DLL Name: (lib
   echo "錯誤：exe 依賴非系統 DLL，轉發到別台電腦會無法執行"; exit 1
 fi
 
+echo "==> 準備內附的 ffmpeg（MP4 to AVIF 用；不連結進 exe，上面的 DLL 檢查不受影響）"
+./scripts/fetch-ffmpeg.sh
+
 echo "==> 產生安裝程式"
 (cd installer && makensis -V2 -DVERSION="$VERSION" -DEXE=../dist/ImgConvert.exe installer.nsi)
 
 echo "==> 產生免安裝版 zip"
 rm -f "dist/ImgConvert-Portable-$VERSION.zip"
-(cd dist && python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED); z.write('ImgConvert.exe'); z.write(sys.argv[2], 'THIRD-PARTY-LICENSES.txt'); z.close()" "ImgConvert-Portable-$VERSION.zip" ../assets/icons/LICENSE-fluentui-emoji.txt)
+(cd dist && python3 -c "
+import zipfile, sys, os
+z = zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED)
+z.write('ImgConvert.exe')
+z.write(sys.argv[2], 'THIRD-PARTY-LICENSES.txt')
+for f in sorted(os.listdir('ffmpeg')):
+    z.write(os.path.join('ffmpeg', f))
+z.close()" "ImgConvert-Portable-$VERSION.zip" ../assets/icons/LICENSE-fluentui-emoji.txt)
 
 # 新版都產生成功後才刪舊版（中途失敗時保留舊版）
 echo "==> 刪除舊版安裝程式與 zip"

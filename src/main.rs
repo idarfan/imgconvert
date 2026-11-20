@@ -1,11 +1,18 @@
 #![cfg_attr(windows, windows_subsystem = "windows")] // Windows 下不跳出命令列視窗
 
+mod audio;
 mod convert;
+mod ffmpeg;
 mod help;
 mod icons;
+mod player;
 mod settings;
 mod theme;
+mod timeline;
+mod video;
 mod view;
+mod waveform;
+mod video_view;
 
 use convert::{Options, Outcome, Rotation};
 use eframe::egui;
@@ -56,7 +63,17 @@ struct Preview {
     rx: Option<Receiver<Result<image::DynamicImage, String>>>,
 }
 
+/// 左側上方的分頁
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum Tab {
+    #[default]
+    Images,
+    Video,
+}
+
 struct App {
+    tab: Tab,
+    video: video_view::VideoTab,
     items: Vec<Item>,
     recursive: bool,
     global_rot: Rotation,
@@ -65,6 +82,8 @@ struct App {
     out_dir: Option<PathBuf>,
     /// 左側設定卡片的排列順序（可拖曳調整）
     card_order: [settings::CardKind; settings::CARD_COUNT],
+    /// 影片分頁設定卡片的排列順序
+    video_card_order: [settings::VideoCard; settings::VIDEO_CARD_COUNT],
     /// 上次寫入磁碟的設定；與目前狀態不同時才重新存檔
     saved: settings::Settings,
     job: Option<Job>,
@@ -81,6 +100,8 @@ impl App {
         theme::install(&cc.egui_ctx);
         let saved = settings::Settings::load();
         let mut app = Self {
+            tab: Tab::Images,
+            video: video_view::VideoTab::new(saved.volume),
             items: Vec::new(),
             recursive: true,
             global_rot: Rotation::R0,
@@ -88,6 +109,7 @@ impl App {
             same_dir: saved.same_dir,
             out_dir: saved.out_dir.clone(),
             card_order: saved.card_order,
+            video_card_order: saved.video_card_order,
             saved,
             job: None,
             selected: None,
@@ -98,13 +120,24 @@ impl App {
         };
         // 支援把檔案／資料夾拖到 exe 圖示上開啟，或命令列參數
         for arg in std::env::args_os().skip(1) {
-            app.add_path(Path::new(&arg));
+            let p = Path::new(&arg);
+            if p.is_file() && video::is_video_file(p) {
+                app.open_video(p, &cc.egui_ctx);
+            } else {
+                app.add_path(p);
+            }
         }
         app
     }
 
     fn current_settings(&self) -> settings::Settings {
-        settings::Settings { card_order: self.card_order, same_dir: self.same_dir, out_dir: self.out_dir.clone() }
+        settings::Settings {
+            card_order: self.card_order,
+            video_card_order: self.video_card_order,
+            same_dir: self.same_dir,
+            out_dir: self.out_dir.clone(),
+            volume: self.video.volume,
+        }
     }
 
     /// 設定有變動就立刻存檔，關閉程式（甚至當掉）也不會遺失

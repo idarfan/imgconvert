@@ -26,7 +26,8 @@ const OUTPUT: &[&str] = &[
 ];
 const LAYOUT: &[&str] = &[
     "左側「輸出設定」的四張卡片可以自由調整順序：按住卡片右上角的六點把手拖曳，藍線標示放下的位置。",
-    "排好的順序會自動記住，下次開啟維持相同排列。",
+    "「MP4 to AVIF」分頁的轉檔模式、輸出位置、同名檔案三張卡片也一樣可以拖曳排序。",
+    "兩個分頁的順序各自記住，下次開啟維持相同排列。",
 ];
 const ROTATE: &[&str] = &[
     "「全部旋轉」套用到所有檔案；清單每列的 ↺ ↻ 只轉那一個檔案，兩者會相加。",
@@ -37,7 +38,20 @@ const RUN: &[&str] = &[
     "標題列下方那一排會顯示轉換進度（已完成 / 總數與百分比）。",
     "每列右側標籤會顯示待轉換、完成、略過或失敗；滑鼠移到「失敗」上可看原因。",
 ];
-const LIMITS: &[&str] = &["動態 AVIF / WebP 只會轉第一格。", "未嵌入 ICC 色彩描述檔，廣色域圖的顏色可能偏淡。"];
+const VIDEO: &[&str] = &[
+    "左側上方切到「MP4 to AVIF」分頁，按「選擇 MP4 影片」或把影片拖曳到視窗（拖進影片會自動切到這個分頁）。",
+    "中間播放影片（有聲音）：▶ 播放／⏸ 暫停（空白鍵），← → 前後跳 1 秒，「▶ 播放範圍」只播 A 到 B。",
+    "右上角可調音量，🔊 按鈕或快速鍵 M 靜音；音量會記住。時間軸上的橘色波形是聲音大小，方便找到說話或靜音的位置。",
+    "選範圍：按「設為 A 點」「設為 B 點」（快速鍵 I、O）記下目前位置；或在時間軸下方軌道直接拖出一段，A、B 端點也能各自拖動；拖上方細條可移動播放位置。",
+    "模式 1 原尺寸、模式 2 縮成 720p（依原比例，不放大），都用 AMD 顯示卡（Radeon RX 7000 系列以上）硬體編碼。",
+    "影格率可選 15／30／60 fps（預設 15，檔案最小）；原影片影格率較低時維持原影格率，不會重複畫面。",
+    "輸出動態 AVIF，沒有聲音；檔名會加上範圍，例如「影片_00m05s-00m12s.avif」。輸出位置與同名檔案處理和圖片共用設定。",
+];
+const LIMITS: &[&str] = &[
+    "動態 AVIF / WebP 只會轉第一格。",
+    "未嵌入 ICC 色彩描述檔，廣色域圖的顏色可能偏淡。",
+    "MP4 to AVIF 需要 AMD 顯示卡；輸出寬高會取到 16 的倍數，1080p 會上下各裁 4 像素成 1072（AMD 編碼器限制）。",
+];
 
 /// 顯示說明對話框；按「關閉」、Esc 或點對話框外面會關閉
 pub fn show(ctx: &egui::Context, icons: &Icons, open: &mut bool) {
@@ -59,6 +73,7 @@ pub fn show(ctx: &egui::Context, icons: &Icons, open: &mut bool) {
                 (&icons.rotate, "旋轉與預覽", ROTATE),
                 (&icons.gear, "調整卡片順序", LAYOUT),
                 (&icons.play, "開始轉換", RUN),
+                (&icons.movie, "MP4 to AVIF", VIDEO),
                 (&icons.bulb, "已知限制", LIMITS),
             ] {
                 section_ui(ui, icon, title, lines);
@@ -81,7 +96,7 @@ fn header_ui(ui: &mut egui::Ui, icons: &Icons) {
                 ui.label(RichText::new("ImgConvert 圖片轉檔器").size(20.0).strong());
                 theme::chip(ui, &format!("v{VERSION}"), theme::accent(ui));
             });
-            ui.weak("把 AVIF / WebP 批次轉成 PNG（無損）或 JPG");
+            ui.weak("把 AVIF / WebP 批次轉成 PNG（無損）或 JPG；MP4 片段轉成動態 AVIF");
         });
     });
 }
@@ -132,6 +147,7 @@ fn footer_ui(ui: &mut egui::Ui) -> bool {
             });
             ui.small(RichText::new(format!("版本 {VERSION}　·　授權 MIT")).weak());
             ui.small(RichText::new("3D 圖示：Microsoft Fluent Emoji（MIT 授權）").weak());
+            ui.small(RichText::new("影片轉檔：FFmpeg（LGPL 3.0 以上，見安裝目錄 ffmpeg 資料夾）").weak());
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             close = theme::primary_button(ui, None, "關閉", true).clicked();

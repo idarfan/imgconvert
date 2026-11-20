@@ -36,6 +36,7 @@ icon_set! {
     gear => "gear_3d.png",
     check => "check_mark_button_3d.png",
     cross => "cross_mark_3d.png",
+    movie => "clapper_board_3d.png",
     logo => "../icon.png",
 }
 

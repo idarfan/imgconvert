@@ -211,7 +211,7 @@ pub fn output_path(src: &Path, root: Option<&Path>, opts: &Options) -> PathBuf {
     p
 }
 
-fn unique_path(p: &Path) -> PathBuf {
+pub fn unique_path(p: &Path) -> PathBuf {
     if !p.exists() {
         return p.to_path_buf();
     }

@@ -1,6 +1,6 @@
 # ImgConvert 圖片轉檔器
 
-Windows 11 桌面程式：把 AVIF / WebP 批次轉成 PNG（無損）或 JPG。Rust + egui，單一 exe，不需安裝任何執行環境。
+Windows 11 桌面程式：把 AVIF / WebP 批次轉成 PNG（無損）或 JPG；也能把 MP4 影片的一段用 AMD 顯示卡轉成動態 AVIF。Rust + egui，不需安裝任何執行環境。
 
 ## 功能
 
@@ -13,12 +13,18 @@ Windows 11 桌面程式：把 AVIF / WebP 批次轉成 PNG（無損）或 JPG。
 - 輸出到原資料夾，或指定資料夾並保留子資料夾結構
 - 左側設定卡片可拖曳排序；卡片順序與輸出位置會記住（存在 `%APPDATA%\ImgConvert\settings.txt`）
 - 同名檔：自動改名 `name (1).png`／覆蓋／略過；先寫暫存檔再改名，中斷不留半個檔
+- 「MP4 to AVIF」分頁：播放影片（有聲音、可調音量）、時間軸顯示音量波形，用 A／B 點或在時間軸拖曳選範圍，以 AMD 顯示卡（`av1_amf`）轉成動態 AVIF
+  - 模式 1 原尺寸；模式 2 縮成 720p（依原比例，不放大）。寬高取 16 的倍數，1080p 上下各裁 4 像素成 1072（AMD 編碼器限制）
+  - 影格率 15／30／60 fps，預設 15
+  - 進度條、可取消；沒有 AMD AV1 硬體編碼時直接顯示錯誤，不改用 CPU
 
 ## 限制
 
 - JPG 本身是有損格式，「無損」只適用 PNG
 - 動態 AVIF／WebP 只轉第一格
 - 未嵌入 ICC 色彩描述檔；Display-P3 等廣色域圖在部分看圖軟體顏色會略淡
+- MP4 to AVIF 需要 Radeon RX 7000 系列以上的 AMD 顯示卡；輸出沒有聲音（AVIF 不支援音訊）
+- 預覽聲音只有 Windows 版會播放；在 WSLg 跑的 Linux 開發版不出聲
 
 ## 在 WSL2 建置
 
@@ -54,6 +60,14 @@ cd ~/imgconvert
 
 exe 只依賴 Windows 內建 DLL（`build-windows.sh` 會自動檢查），可直接拷到別台電腦執行。
 
+MP4 to AVIF 用的 ffmpeg 不連結進 exe，而是放在旁邊的 `ffmpeg\` 資料夾、另開程序呼叫。`build-windows.sh` 會呼叫 `scripts/fetch-ffmpeg.sh` 下載固定版本並核對 SHA256：
+
+| 項目 | 內容 |
+|---|---|
+| 版本 | FFmpeg n8.1.3 win64 lgpl-shared（`FFmpeg-Builds/FFmpeg-Builds`，tag `autobuild-2026-11-19-12-39`） |
+| 授權 | LGPL 3.0 以上（`--enable-version3`，無 `--enable-gpl`／`--enable-nonfree`）；`LICENSE.txt` 與原始碼網址 `SOURCE.txt` 一起發佈 |
+| 快取 | `~/.cache/imgconvert/`。上游的自動建置 release 會被定期刪除，請保留這個快取 |
+
 ## 安裝程式
 
 - 安裝到 `%LOCALAPPDATA%\Programs\ImgConvert`，不需系統管理員權限
@@ -71,6 +85,13 @@ src/theme.rs          介面配色（跟隨 Windows 淺色／深色）與共用�
 src/help.rs           「說明」對話框（操作說明、版本號）
 src/settings.rs       記住卡片順序與輸出位置（純文字設定檔）＋單元測試
 src/view.rs           主視窗版面（標題列、設定欄、清單、預覽、動作列）
+src/video.rs          MP4 to AVIF 純邏輯（ffprobe 解析、A/B 範圍、ffmpeg 參數、進度與錯誤訊息）＋單元測試
+src/ffmpeg.rs         呼叫 ffmpeg／ffprobe：讀影片資訊、背景解碼預覽、背景轉檔＋整合測試
+src/player.rs         影片播放器狀態（跳轉、播放／暫停、A/B 範圍）
+src/timeline.rs       時間軸元件（拖曳選範圍、拖動 A/B、移動播放位置）＋單元測試
+src/video_view.rs     「MP4 to AVIF」分頁的版面
+src/audio.rs          預覽聲音輸出（Windows：cpal／WASAPI）與播放時鐘＋單元測試
+src/waveform.rs       音量波形計算（峰值、RMS）＋單元測試
 src/icons.rs          3D 圖示載入（Microsoft Fluent Emoji 3D，MIT）
 assets/icons/         3D 圖示 PNG 與授權檔
 build.rs              嵌入 exe 圖示與版本資訊
@@ -82,6 +103,26 @@ tests/fixtures/       測試圖（avifdec_ref.png 由 libavif 官方解碼器產
 改版號：修改 `Cargo.toml` 的 `version`，重新執行 `build-windows.sh`。
 
 ## 變更記錄
+
+### 2026-11-20 — v1.2.0：預覽聲音、音量波形、影格率選項、修正 AVIF 打不開
+
+- 播放時有聲音，畫面以聲音當時鐘同步；音量滑桿與靜音（快速鍵 M），音量記在設定檔。
+- 時間軸顯示音量波形（每 10 毫秒一格的峰值與平均音量），選取範圍內為橘色。
+- 新增依賴 `cpal` 0.18（Apache-2.0，RustAudio），只在 Windows 版使用 WASAPI；exe 仍只依賴 Windows 內建 DLL（多了 `mmdevapi.dll` 等系統音效元件）。
+- 影格率可選 15／30／60 fps（預設 15）；原影片較慢時不重複影格。
+- 修正：AMD 編碼器遇到不是 16 倍數的高度會自行補邊（1080 → 1082），檔頭卻記錄 1080，Firefox、FastStone 打不開。現在輸出寬高一律取 16 的倍數（1080p 置中裁成 1072），轉完再用 ffprobe 檢查實際大小，不符就提醒。
+- 影片分頁的「轉檔模式／輸出位置／同名檔案」三張卡片也能按六點把手拖曳排序，順序另外記在 `settings.txt` 的 `video_card_order=`；拖曳排序邏輯抽成兩個分頁共用的 `reorder_cards`。
+- 新增 `audio.rs`、`waveform.rs`；測試從 33 個增加到 45 個。
+
+### 2026-11-20 — v1.1.0：新增「MP4 to AVIF」分頁
+
+- 左側上方新增分頁切換「圖片轉檔／MP4 to AVIF」；把影片拖進視窗會自動切過去。
+- 中間播放影片（ffmpeg 背景解碼成預覽畫面）：播放／暫停、前後跳 1 秒、只播 A→B。
+- 選範圍：「設為 A 點」「設為 B 點」（快速鍵 I、O），或在時間軸拖出一段，A、B 端點可個別拖動。
+- 兩種模式，都用 AMD 顯示卡 `av1_amf` 硬體編碼（qvbr 24）：模式 1 原尺寸、模式 2 縮成 720p。
+- 先寫 `.avif.part` 再改名，取消或失敗不留半個檔；沒有 AMD 編碼器時顯示易懂的錯誤訊息。
+- 安裝程式與 zip 內附 LGPL 版 ffmpeg（`ffmpeg\` 資料夾，含授權與原始碼網址），安裝程式變成約 54 MB。
+- 新增 `video.rs`、`ffmpeg.rs`、`player.rs`、`timeline.rs`、`video_view.rs`、`scripts/fetch-ffmpeg.sh`；測試從 17 個增加到 33 個。
 
 ### 2026-11-20 — v1.0.2：設定卡片可拖曳排序、記住輸出位置
 

@@ -4,7 +4,7 @@
 use crate::convert::{self, ExistPolicy, OutFormat, Rotation};
 use crate::icons::{Icons, img};
 use crate::settings::{self, CardKind};
-use crate::{App, Item, Status, help, theme};
+use crate::{App, Item, Status, Tab, help, theme, video_view};
 use eframe::egui::{self, RichText};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -22,13 +22,16 @@ impl eframe::App for App {
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = &root.ctx().clone();
         self.poll_job();
+        self.poll_video(ctx);
         let running = self.running();
 
-        // 拖放檔案／資料夾
+        // 拖放檔案／資料夾：拖進影片就切到「MP4 to AVIF」分頁，其他加入圖片清單
         let dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect()
         });
-        if !running {
+        if let Some(v) = video_view::first_video(&dropped) {
+            self.open_video(&v.clone(), ctx);
+        } else if !running {
             for p in dropped {
                 self.add_path(&p);
             }
@@ -45,16 +48,27 @@ impl eframe::App for App {
         egui::Panel::left("settings").frame(side).resizable(false).exact_size(SIDEBAR_WIDTH).show(root, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.set_width(SIDEBAR_WIDTH - 40.0);
-                self.sources_ui(ui, running);
-                ui.add_enabled_ui(!running, |ui| self.settings_ui(ui));
+                self.tabs_ui(ui);
+                match self.tab {
+                    Tab::Images => {
+                        self.sources_ui(ui, running);
+                        ui.add_enabled_ui(!running, |ui| self.settings_ui(ui));
+                    }
+                    Tab::Video => self.video_sidebar_ui(ui),
+                }
             });
         });
-        egui::Panel::right("preview").frame(side).resizable(true).default_size(320.0).show(root, |ui| {
-            self.preview_ui(ui);
-        });
+        if self.tab == Tab::Images {
+            egui::Panel::right("preview").frame(side).resizable(true).default_size(320.0).show(root, |ui| {
+                self.preview_ui(ui);
+            });
+        }
 
         let central = egui::Frame::central_panel(root.style()).inner_margin(egui::Margin::symmetric(8, 8));
-        egui::CentralPanel::default().frame(central).show(root, |ui| self.list_ui(ui, running));
+        egui::CentralPanel::default().frame(central).show(root, |ui| match self.tab {
+            Tab::Images => self.list_ui(ui, running),
+            Tab::Video => self.video_main_ui(ui),
+        });
 
         help::show(ctx, &self.icons, &mut self.show_help);
         self.persist_settings();
@@ -89,6 +103,9 @@ impl App {
     }
 
     fn start_button_ui(&mut self, ui: &mut egui::Ui, running: bool) {
+        if self.tab == Tab::Video {
+            return self.video_start_button_ui(ui);
+        }
         if running {
             if theme::secondary_button(ui, Some(&self.icons.stop), "取消").clicked() {
                 if let Some(j) = &self.job {
@@ -97,6 +114,28 @@ impl App {
             }
         } else if theme::primary_button(ui, Some(&self.icons.play), "開始轉換", !self.items.is_empty()).clicked() {
             self.start(ui.ctx());
+        }
+    }
+
+    /// 左側最上方的分頁切換：圖片轉檔／MP4 to AVIF
+    fn tabs_ui(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(4.0);
+        let busy = |b: bool| if b { "（轉換中）" } else { "" };
+        let images = format!("圖片轉檔{}", busy(self.running()));
+        let video = format!("MP4 to AVIF{}", busy(self.video.running()));
+        theme::segmented(ui, &mut self.tab, &[(Tab::Images, images.as_str()), (Tab::Video, video.as_str())]);
+    }
+
+    fn video_start_button_ui(&mut self, ui: &mut egui::Ui) {
+        if let Some(job) = &self.video.job {
+            if theme::secondary_button(ui, Some(&self.icons.stop), "取消").clicked() {
+                job.cancel();
+            }
+            return;
+        }
+        let ready = self.video.player.as_ref().is_some_and(|p| p.info.is_some());
+        if theme::primary_button(ui, Some(&self.icons.play), "開始轉換", ready).clicked() {
+            self.start_video(ui.ctx());
         }
     }
 
@@ -125,37 +164,14 @@ impl App {
     /// 四張設定卡片依 `card_order` 排列；按住右上角把手可拖曳調整順序
     fn settings_ui(&mut self, ui: &mut egui::Ui) {
         theme::section_label(ui, "輸出設定");
-        let ctx = ui.ctx().clone();
-        let dragging = egui::DragAndDrop::payload::<CardKind>(&ctx).map(|p| *p);
-        if dragging.is_some() {
-            ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
-        }
-        let pointer = ctx.pointer_interact_pos();
-        let released = ctx.input(|i| i.pointer.any_released());
-        let gap = ui.spacing().item_spacing.y;
-        let mut drop_at: Option<usize> = None;
-        for (idx, kind) in self.card_order.into_iter().enumerate() {
-            let (rect, grip) = self.card_ui(ui, kind, dragging == Some(kind));
-            grip.dnd_set_drag_payload(kind);
-            // 指標落在這張卡片（含下方間距）時，依上半／下半決定插在前面或後面
-            let zone = rect.expand2(egui::vec2(0.0, gap * 0.5));
-            if let (Some(_), Some(pos)) = (dragging, pointer.filter(|p| zone.contains(*p))) {
-                let after = pos.y > rect.center().y;
-                let y = if after { rect.bottom() + gap * 0.5 } else { rect.top() - gap * 0.5 };
-                theme::drop_indicator(ui, rect.left(), rect.right(), y);
-                drop_at = Some(idx + usize::from(after));
-            }
-        }
-        if released && let Some(kind) = egui::DragAndDrop::take_payload::<CardKind>(&ctx) {
-            if let Some(at) = drop_at {
-                self.card_order = settings::move_card(self.card_order, *kind, at);
-            }
+        if let Some(order) = reorder_cards(ui, self.card_order, |ui, kind, dimmed| self.card_ui(ui, kind, dimmed)) {
+            self.card_order = order;
         }
     }
 
     fn card_ui(&mut self, ui: &mut egui::Ui, kind: CardKind, dimmed: bool) -> (egui::Rect, egui::Response) {
         let App { icons, opts, same_dir, out_dir, global_rot, items, .. } = self;
-        let grip_id = egui::Id::new(("settings_card_grip", kind as u8));
+        let grip_id = egui::Id::unique(("settings_card_grip", kind as u8));
         let card = |ui: &mut egui::Ui, icon, title, desc: &str, add: &mut dyn FnMut(&mut egui::Ui)| {
             theme::draggable_settings_card(ui, grip_id, dimmed, icon, title, desc, |ui| add(ui))
         };
@@ -186,8 +202,10 @@ impl App {
 
     /// 標題列第二排：左邊狀態訊息，右邊進度條（尚未轉換時進度條為空）
     fn progress_ui(&self, ui: &mut egui::Ui) {
-        let (frac, text) = match &self.job {
-            Some(j) if j.total > 0 => {
+        let (frac, text) = match (&self.job, self.video_progress()) {
+            (_, Some(v)) if self.tab == Tab::Video => v,
+            (_, None) if self.tab == Tab::Video => (0.0, "尚未開始".to_string()),
+            (Some(j), _) if j.total > 0 => {
                 let d = j.done.load(Ordering::Relaxed);
                 (d as f32 / j.total as f32, format!("{d} / {}（{:.0}%）", j.total, d as f32 * 100.0 / j.total as f32))
             }
@@ -295,7 +313,43 @@ impl App {
     }
 }
 
-fn out_location_ui(ui: &mut egui::Ui, same_dir: &mut bool, out_dir: &mut Option<PathBuf>) {
+/// 依 `order` 畫出一組可拖曳排序的卡片（圖片、影片兩個分頁共用）。
+/// `card` 負責畫一張卡片，回傳 (卡片範圍, 把手的 Response)；第三個參數表示「正在被拖」要畫半透明。
+/// 放開滑鼠時若位置有變，回傳新的順序。
+pub(crate) fn reorder_cards<T: settings::Card, const N: usize>(
+    ui: &mut egui::Ui,
+    order: [T; N],
+    mut card: impl FnMut(&mut egui::Ui, T, bool) -> (egui::Rect, egui::Response),
+) -> Option<[T; N]> {
+    let ctx = ui.ctx().clone();
+    let dragging = egui::DragAndDrop::payload::<T>(&ctx).map(|p| *p);
+    if dragging.is_some() {
+        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+    }
+    let pointer = ctx.pointer_interact_pos();
+    let released = ctx.input(|i| i.pointer.any_released());
+    let gap = ui.spacing().item_spacing.y;
+    let mut drop_at: Option<usize> = None;
+    for (idx, kind) in order.into_iter().enumerate() {
+        let (rect, grip) = card(ui, kind, dragging == Some(kind));
+        grip.dnd_set_drag_payload(kind);
+        // 指標落在這張卡片（含下方間距）時，依上半／下半決定插在前面或後面
+        let zone = rect.expand2(egui::vec2(0.0, gap * 0.5));
+        if let (Some(_), Some(pos)) = (dragging, pointer.filter(|p| zone.contains(*p))) {
+            let after = pos.y > rect.center().y;
+            let y = if after { rect.bottom() + gap * 0.5 } else { rect.top() - gap * 0.5 };
+            theme::drop_indicator(ui, rect.left(), rect.right(), y);
+            drop_at = Some(idx + usize::from(after));
+        }
+    }
+    if !released {
+        return None;
+    }
+    let kind = egui::DragAndDrop::take_payload::<T>(&ctx)?;
+    drop_at.map(|at| settings::move_card(order, *kind, at)).filter(|o| *o != order)
+}
+
+pub(crate) fn out_location_ui(ui: &mut egui::Ui, same_dir: &mut bool, out_dir: &mut Option<PathBuf>) {
     theme::segmented(ui, same_dir, &[(true, "與原檔相同資料夾"), (false, "指定資料夾")]);
     if *same_dir {
         return;

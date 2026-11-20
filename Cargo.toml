@@ -1,8 +1,8 @@
 [package]
 name = "imgconvert"
-version = "1.0.2"
+version = "1.2.0"
 edition = "2024"
-description = "AVIF / WebP 批次轉 PNG / JPG 工具"
+description = "AVIF / WebP 批次轉 PNG / JPG，MP4 片段轉動態 AVIF"
 license = "MIT"
 
 [[bin]]
@@ -31,5 +31,9 @@ strip = true
 panic = "abort"
 
 # 僅供在 WSL2/Linux 上開發測試時能跑 GUI；Windows 版不受影響
+# 播放影片聲音（Apache-2.0，RustAudio）；只用在 Windows（WASAPI，系統內建），Linux 開發版不出聲
+[target.'cfg(windows)'.dependencies]
+cpal = "0.18"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }

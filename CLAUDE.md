@@ -30,6 +30,15 @@ export SYSTEM_DEPS_DAV1D_LINK=static
 - `src/icons.rs` + `assets/icons/`：3D 圖示（Microsoft Fluent Emoji 3D，MIT）。新增圖示從 github.com/microsoft/fluentui-emoji 的 `3D` 資料夾取用，並在 `icon_set!` 登記；授權檔必須隨安裝程式和 zip 發佈
 - `src/theme.rs`：配色（跟隨系統淺色／深色）、字級，以及卡片、分段按鈕、主按鈕、狀態標籤等共用元件
 - `src/help.rs`：「說明」對話框的操作說明文字與版本號（取自 `Cargo.toml`）。改了操作方式要同步更新這裡
+- MP4 to AVIF 分頁：
+  - `src/video.rs`：純邏輯，包含 ffprobe 解析、A/B 範圍、ffmpeg 參數、進度與錯誤訊息，改行為必須補測試
+  - `src/ffmpeg.rs`：開程序呼叫 ffmpeg／ffprobe，先找 exe 旁的 `ffmpeg\`，找不到才用 PATH
+  - `src/player.rs`、`src/timeline.rs`、`src/video_view.rs`：播放器狀態、時間軸元件（含音量波形）、分頁版面
+  - `src/audio.rs`：預覽聲音。`cpal` 只是 Windows 依賴（`[target.'cfg(windows)'.dependencies]`），Linux 版是不出聲的替代實作，所以 WSL 不需要裝 ALSA 開發套件。聲音同時當播放時鐘，畫面依它送出影格
+  - `src/waveform.rs`：波形計算，用 ffmpeg 把音軌轉成單聲道 8 kHz 後每 10 毫秒取峰值與 RMS
+  - ffmpeg 由 `scripts/fetch-ffmpeg.sh` 下載固定版本（LGPL 3.0+ shared，含 AMF），放在 `dist/ffmpeg/` 隨安裝程式發佈。它不連結進 exe，所以規則 2 只管 ImgConvert.exe。換 ffmpeg 版本要更新 SHA256，並重新確認沒有 `--enable-gpl`
+  - AMD `av1_amf` 的已知行為：寬高不是 16 的倍數時會自行補邊（1080 → 1082）而檔頭仍寫 1080，Firefox、FastStone 會打不開。所以 `Mode::output_size` 一律取 16 的倍數（模式 1 置中裁切、模式 2 縮放），轉完用 ffprobe 檢查實際大小。目前只支援 AMD GPU，不改用 CPU（使用者決定）
+  - 影格率 15／30／60 fps，預設 15（使用者決定），用 `fps=` 濾鏡；原片較慢時不加
 - `build.rs`：目標是 Windows 時嵌入 exe 圖示和版本資訊（winresource 搭配 mingw windres）
 - `installer/installer.nsi`：NSIS 安裝程式，裝在使用者目錄，不需要系統管理員權限
 - `scripts/`：WSL2 環境建置、Windows 打包

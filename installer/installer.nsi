@@ -54,6 +54,10 @@ Section "主程式（必要）" SecMain
   File "/oname=ImgConvert.exe" "${EXE}"
   File "/oname=icon.ico" "../assets/icon.ico"
   File "/oname=THIRD-PARTY-LICENSES.txt" "../assets/icons/LICENSE-fluentui-emoji.txt"
+  ; MP4 to AVIF 用的 ffmpeg（LGPL，另開程序呼叫；由 scripts/fetch-ffmpeg.sh 準備）
+  SetOutPath "$INSTDIR\ffmpeg"
+  File "../dist/ffmpeg/*"
+  SetOutPath "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
@@ -94,6 +98,7 @@ Section "Uninstall"
   Delete "$INSTDIR\icon.ico"
   Delete "$INSTDIR\THIRD-PARTY-LICENSES.txt"
   Delete "$INSTDIR\Uninstall.exe"
+  RMDir /r "$INSTDIR\ffmpeg"
   RMDir "$INSTDIR"
   Delete "$SMPROGRAMS\${APPNAME}\${LNK}"
   Delete "$SMPROGRAMS\${APPNAME}\Uninstall.lnk"
